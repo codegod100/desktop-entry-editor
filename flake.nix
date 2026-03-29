@@ -37,6 +37,8 @@
           makeWrapper
         ];
 
+        appNativeBuildInputs = nativeBuildInputs ++ [ pkgs.clang pkgs.wild ];
+
         # Cargo.toml + lock file for dependency derivation
         src = craneLib.path ./.;
 
@@ -49,7 +51,10 @@
 
         # Build the actual application
         desktop-entry-editor = craneLib.buildPackage ({
-          inherit cargoArtifacts src buildInputs nativeBuildInputs;
+          inherit cargoArtifacts src buildInputs;
+          nativeBuildInputs = appNativeBuildInputs;
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.clang}/bin/clang";
+          CARGO_BUILD_RUSTFLAGS = "-C link-arg=-fuse-ld=${pkgs.wild}/bin/wild";
         });
 
         # Wrapped binary with proper LD_LIBRARY_PATH

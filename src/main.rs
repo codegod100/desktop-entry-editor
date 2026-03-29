@@ -10,11 +10,22 @@ slint::include_modules!();
 const STANDARD_PATHS: &[&str] = &[
     "/usr/share/applications",
     "/usr/local/share/applications",
+    "/run/current-system/sw/share/applications",
+    "/var/run/current-system/sw/share/applications",
     "/var/lib/flatpak/exports/share/applications",
+    "/var/lib/snapd/desktop/applications",
 ];
 
 fn home_applications() -> PathBuf {
     dirs_home().join(".local/share/applications")
+}
+
+fn home_nix_profile_applications() -> PathBuf {
+    dirs_home().join(".nix-profile/share/applications")
+}
+
+fn home_flatpak_applications() -> PathBuf {
+    dirs_home().join(".local/share/flatpak/exports/share/applications")
 }
 
 fn dirs_home() -> PathBuf {
@@ -209,6 +220,8 @@ fn scan_desktop_entries() -> Vec<DesktopEntryData> {
 
     let mut dirs: Vec<PathBuf> = STANDARD_PATHS.iter().map(PathBuf::from).collect();
     dirs.push(home_applications());
+    dirs.push(home_nix_profile_applications());
+    dirs.push(home_flatpak_applications());
 
     for dir in dirs {
         if !dir.is_dir() {
@@ -221,8 +234,13 @@ fn scan_desktop_entries() -> Vec<DesktopEntryData> {
                 continue;
             }
             if let Some(entry) = DesktopEntryData::from_file(&path) {
+                let desktop_id = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string();
                 let name = entry.get("Name");
-                if !name.is_empty() && seen.insert(name.clone()) {
+                if !name.is_empty() && seen.insert(desktop_id) {
                     entries.push(entry);
                 }
             }
