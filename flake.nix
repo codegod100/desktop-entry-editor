@@ -4,20 +4,14 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     crane.url = "github:ipetkov/crane";
-    fenix = {
-      url = "github:nix-community/fenix/monthly";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, crane, fenix, flake-utils }:
+  outputs = { self, nixpkgs, crane, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-
-        fenixToolchain = fenix.packages.${system}.complete.toolchain;
-        craneLib = (crane.mkLib pkgs).overrideToolchain fenixToolchain;
+        craneLib = crane.mkLib pkgs;
 
         # Common build inputs
         buildInputs = with pkgs; [
@@ -27,11 +21,11 @@
           fontconfig
           freetype
           expat
-          xorg.libX11
-          xorg.libXcursor
-          xorg.libXi
-          xorg.libXrandr
-          xorg.libxcb
+          libx11
+          libxcursor
+          libxi
+          libxrandr
+          libxcb
           vulkan-loader
           vulkan-headers
           systemd # for libudev
@@ -81,12 +75,17 @@
           inherit buildInputs nativeBuildInputs;
 
           packages = with pkgs; [
-            fenixToolchain
+            rustc
+            cargo
+            clippy
+            rustfmt
+            rust-analyzer
             cargo-watch
             cargo-edit
           ];
 
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
+          RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         };
       });
 }

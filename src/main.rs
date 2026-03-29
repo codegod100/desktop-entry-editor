@@ -3,6 +3,8 @@ use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use slint::{Model, ModelRc, SharedString, VecModel};
+
 slint::include_modules!();
 
 const STANDARD_PATHS: &[&str] = &[
@@ -109,32 +111,36 @@ impl DesktopEntryData {
 
     fn to_file_data(&self) -> DesktopFileData {
         DesktopFileData {
-            path: self.path.to_string_lossy().to_string(),
+            path: self.path.to_string_lossy().to_string().into(),
             is_new: !self.path.exists(),
             has_changes: false,
-            name: self.get("Name"),
-            generic_name: self.get("GenericName"),
-            comment: self.get("Comment"),
-            icon: self.get("Icon"),
-            exec: self.get("Exec"),
-            try_exec: self.get("TryExec"),
-            desktop_type: self.get("Type"),
-            categories: self.get("Categories"),
-            mime_types: self.get("MimeType"),
-            keywords: self.get("Keywords"),
-            startup_wm_class: self.get("StartupWMClass"),
+            name: self.get("Name").into(),
+            generic_name: self.get("GenericName").into(),
+            comment: self.get("Comment").into(),
+            icon: self.get("Icon").into(),
+            exec: self.get("Exec").into(),
+            try_exec: self.get("TryExec").into(),
+            desktop_type: self.get("Type").into(),
+            categories: self.get("Categories").into(),
+            mime_types: self.get("MimeType").into(),
+            keywords: self.get("Keywords").into(),
+            startup_wm_class: self.get("StartupWMClass").into(),
             terminal: self.get("Terminal").to_lowercase() == "true",
             startup_notify: self.get("StartupNotify").to_lowercase() == "true",
             no_display: self.get("NoDisplay").to_lowercase() == "true",
             hidden: self.get("Hidden").to_lowercase() == "true",
             dbus_activatable: self.get("DBusActivatable").to_lowercase() == "true",
-            working_dir: self.get("Path"),
-            only_show_in: self.get("OnlyShowIn"),
-            not_show_in: self.get("NotShowIn"),
-            actions: self.get("Actions"),
-            implements: self.get("Implements"),
-            raw_keys: self.keys.clone(),
-            raw_values: self.values.clone(),
+            working_dir: self.get("Path").into(),
+            only_show_in: self.get("OnlyShowIn").into(),
+            not_show_in: self.get("NotShowIn").into(),
+            actions: self.get("Actions").into(),
+            implements: self.get("Implements").into(),
+            raw_keys: ModelRc::new(VecModel::from(
+                self.keys.iter().cloned().map(SharedString::from).collect::<Vec<_>>()
+            )),
+            raw_values: ModelRc::new(VecModel::from(
+                self.values.iter().cloned().map(SharedString::from).collect::<Vec<_>>()
+            )),
         }
     }
 
@@ -169,11 +175,13 @@ impl DesktopEntryData {
         }
 
         // Apply raw edits for keys not covered by structured fields
-        for i in 0..data.raw_keys.len() {
-            let key = &data.raw_keys[i];
+        for i in 0..data.raw_keys.row_count() {
+            let Some(key) = data.raw_keys.row_data(i) else { continue };
             if !structured_keys.contains(&key.as_str()) {
-                if let Some(pos) = self.keys.iter().position(|k| k == key) {
-                    self.values[pos] = data.raw_values[i].clone();
+                if let Some(pos) = self.keys.iter().position(|k| key == k) {
+                    if let Some(value) = data.raw_values.row_data(i) {
+                        self.values[pos] = value.to_string();
+                    }
                 }
             }
         }
@@ -275,7 +283,7 @@ fn main() {
                 });
             }
         }
-        results
+        ModelRc::new(VecModel::from(results))
     });
 
     // --- Load entry ---
@@ -328,14 +336,17 @@ fn main() {
             app.set_has_selection(true);
             app.set_unsaved_changes(true);
 
-            let mut results: Vec<SearchResult> = app.get_search_results().to_vec();
+            let search_results = app.get_search_results();
+            let mut results: Vec<SearchResult> = (0..search_results.row_count())
+                .filter_map(|i| search_results.row_data(i))
+                .collect();
             results.insert(0, SearchResult {
                 name: "New Entry".into(),
                 icon: "".into(),
                 path: home_applications().join("my-application.desktop").to_string_lossy().to_string().into(),
                 comment: "New desktop entry".into(),
             });
-            app.set_search_results(results.into());
+            app.set_search_results(ModelRc::new(VecModel::from(results)));
             app.set_selected_index(0);
         }
     });

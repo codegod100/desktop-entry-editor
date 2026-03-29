@@ -1,13 +1,13 @@
 import { Button, LineEdit, StandardButton, VerticalBox, HorizontalBox, TabWidget, CheckBox, ComboBox, GridBox, GroupBox, ScrollView } from "std-widgets.slint";
 
-export struct SearchResult := struct {
+export struct SearchResult {
     name: string,
     icon: string,
     path: string,
     comment: string,
 }
 
-export struct DesktopFileData := struct {
+export struct DesktopFileData {
     path: string,
     is-new: bool,
     has-changes: bool,
@@ -93,7 +93,7 @@ export component AppWindow inherits Window {
                     text: "Search installed .desktop files and edit their properties.";
                     font-size: 12px;
                     color: #aeb6c2;
-                    wrap-mode: word-wrap;
+                    wrap: word-wrap;
                 }
 
                 // Search field
@@ -115,10 +115,8 @@ export component AppWindow inherits Window {
                             font-size: 14px;
                         }
 
-                        search-input := TextInput {
-                            vertical-alignment: center;
+                        search-input := LineEdit {
                             font-size: 13px;
-                            color: #eff0f1;
                             placeholder-text: "Search desktop files...";
                             text: root.search-query;
 
@@ -137,60 +135,62 @@ export component AppWindow inherits Window {
                 }
 
                 // Results list
-                ListView {
-                    current: root.selected-index;
+                ScrollView {
+                    VerticalLayout {
+                        spacing: 6px;
 
-                    for result[idx] in root.search-results: Rectangle {
-                        height: 62px;
-                        background: idx == root.selected-index ? #5294e240 : (mouse-area.has-hover ? #ffffff08 : transparent);
-                        border-radius: 6px;
+                        for result[idx] in root.search-results: Rectangle {
+                            height: 62px;
+                            background: idx == root.selected-index ? #5294e240 : (mouse-area.has-hover ? #ffffff08 : transparent);
+                            border-radius: 6px;
 
-                        mouse-area := TouchArea {
-                            clicked => {
-                                root.selected-index = idx;
-                                root.loading = true;
-                                root.current-file = root.load-entry(idx);
-                                root.has-selection = true;
-                                root.loading = false;
-                                root.unsaved-changes = false;
-                            }
-                        }
-
-                        HorizontalLayout {
-                            padding: 10px;
-                            spacing: 12px;
-
-                            Rectangle {
-                                width: 40px;
-                                height: 40px;
-                                border-radius: 8px;
-                                background: #2a2f3a;
-
-                                Text {
-                                    text: result.icon != "" ? "📦" : "📄";
-                                    font-size: 20px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
+                            mouse-area := TouchArea {
+                                clicked => {
+                                    root.selected-index = idx;
+                                    root.loading = true;
+                                    root.current-file = root.load-entry(idx);
+                                    root.has-selection = true;
+                                    root.loading = false;
+                                    root.unsaved-changes = false;
                                 }
                             }
 
-                            VerticalLayout {
-                                spacing: 2px;
+                            HorizontalLayout {
+                                padding: 10px;
+                                spacing: 12px;
 
-                                Text {
-                                    text: result.name;
-                                    font-size: 13px;
-                                    font-weight: 600;
-                                    color: #eff0f1;
-                                    vertical-alignment: center;
+                                Rectangle {
+                                    width: 40px;
+                                    height: 40px;
+                                    border-radius: 8px;
+                                    background: #2a2f3a;
+
+                                    Text {
+                                        text: result.icon != "" ? "📦" : "📄";
+                                        font-size: 20px;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                 }
 
-                                Text {
-                                    text: result.comment != "" ? result.comment : result.path;
-                                    font-size: 11px;
-                                    color: #8892a0;
-                                    vertical-alignment: center;
-                                    overflow: elide;
+                                VerticalLayout {
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: result.name;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        color: #eff0f1;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Text {
+                                        text: result.comment != "" ? result.comment : result.path;
+                                        font-size: 11px;
+                                        color: #8892a0;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
                                 }
                             }
                         }
@@ -539,7 +539,7 @@ export component AppWindow inherits Window {
                                     text: "Raw desktop file keys and values. Edit values directly.";
                                     font-size: 12px;
                                     color: #8892a0;
-                                    wrap-mode: word-wrap;
+                                    wrap: word-wrap;
                                 }
 
                                 for key[idx] in root.current-file.raw-keys: HorizontalLayout {
@@ -567,12 +567,10 @@ export component AppWindow inherits Window {
                                         border-width: 1px;
                                         border-color: #3b4252;
 
-                                        raw-input := TextInput {
+                                        raw-input := LineEdit {
                                             text: root.current-file.raw-values[idx];
                                             font-size: 12px;
                                             font-family: "monospace";
-                                            color: #eff0f1;
-                                            vertical-alignment: center;
                                             x: 8px;
 
                                             edited => {
