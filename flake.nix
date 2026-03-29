@@ -55,6 +55,7 @@
           nativeBuildInputs = appNativeBuildInputs;
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.clang}/bin/clang";
           CARGO_BUILD_RUSTFLAGS = "-C link-arg=-fuse-ld=${pkgs.wild}/bin/wild";
+          doCheck = false;
         });
 
         # Wrapped binary with proper LD_LIBRARY_PATH

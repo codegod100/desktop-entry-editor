@@ -314,9 +314,9 @@ fn main() {
     // --- Load entry ---
     let entries_c = all_entries.clone();
     let current_c = current_raw.clone();
-    app.on_load_entry(move |index: i32| {
+    app.on_load_entry(move |path: slint::SharedString| {
         let entries = entries_c.borrow();
-        if let Some(entry) = entries.get(index as usize) {
+        if let Some(entry) = entries.iter().find(|entry| entry.path == Path::new(path.as_str())) {
             let data = entry.to_file_data();
             *current_c.borrow_mut() = Some(entry.clone());
             data

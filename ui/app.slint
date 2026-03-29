@@ -64,7 +64,7 @@ export component AppWindow inherits Window {
     // --- Callbacks to Rust ---
     callback scan-entries();
     callback search(string) -> [SearchResult];
-    callback load-entry(int) -> DesktopFileData;
+    callback load-entry(string) -> DesktopFileData;
     callback save-entry();
     callback new-entry();
     callback delete-entry();
@@ -148,7 +148,7 @@ export component AppWindow inherits Window {
                                 clicked => {
                                     root.selected-index = idx;
                                     root.loading = true;
-                                    root.current-file = root.load-entry(idx);
+                                    root.current-file = root.load-entry(result.path);
                                     root.has-selection = true;
                                     root.loading = false;
                                     root.unsaved-changes = false;
