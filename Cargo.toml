@@ -1,0 +1,12 @@
+[package]
+name = "desktop-entry-editor"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+slint = "1.9"
+dirs = "6"
+
+[build-dependencies]
+slint-build = "1.9"
