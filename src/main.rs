@@ -1,20 +1,12 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::fs;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 slint::include_modules!();
-
-const STANDARD_PATHS: &[&str] = &[
-    "/usr/share/applications",
-    "/usr/local/share/applications",
-    "/run/current-system/sw/share/applications",
-    "/var/run/current-system/sw/share/applications",
-    "/var/lib/flatpak/exports/share/applications",
-    "/var/lib/snapd/desktop/applications",
-];
 
 fn home_applications() -> PathBuf {
     dirs_home().join(".local/share/applications")
@@ -26,6 +18,17 @@ fn home_nix_profile_applications() -> PathBuf {
 
 fn home_flatpak_applications() -> PathBuf {
     dirs_home().join(".local/share/flatpak/exports/share/applications")
+}
+
+fn xdg_data_applications() -> Vec<PathBuf> {
+    let xdg_data_dirs = std::env::var("XDG_DATA_DIRS")
+        .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
+
+    xdg_data_dirs
+        .split(':')
+        .filter(|dir| !dir.is_empty())
+        .map(|dir| PathBuf::from(dir).join("applications"))
+        .collect()
 }
 
 fn dirs_home() -> PathBuf {
@@ -216,14 +219,18 @@ impl DesktopEntryData {
 
 fn scan_desktop_entries() -> Vec<DesktopEntryData> {
     let mut entries = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
+    let mut scanned_dirs = HashSet::new();
 
-    let mut dirs: Vec<PathBuf> = STANDARD_PATHS.iter().map(PathBuf::from).collect();
+    let mut dirs = xdg_data_applications();
     dirs.push(home_applications());
     dirs.push(home_nix_profile_applications());
     dirs.push(home_flatpak_applications());
 
     for dir in dirs {
+        if !scanned_dirs.insert(dir.clone()) {
+            continue;
+        }
         if !dir.is_dir() {
             continue;
         }
