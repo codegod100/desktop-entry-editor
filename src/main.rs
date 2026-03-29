@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::fs;
-use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 slint::include_modules!();
@@ -21,7 +21,7 @@ fn dirs_home() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("/"))
 }
 
-/// Represents a parsed .desktop file
+/// Parsed .desktop file
 #[derive(Clone, Debug)]
 struct DesktopEntryData {
     path: PathBuf,
@@ -93,23 +93,18 @@ impl DesktopEntryData {
     }
 
     fn get(&self, key: &str) -> String {
-        for (i, k) in self.keys.iter().enumerate() {
-            if k == key {
-                return self.values.get(i).cloned().unwrap_or_default();
-            }
-        }
-        String::new()
+        self.keys.iter().position(|k| k == key)
+            .and_then(|i| self.values.get(i).cloned())
+            .unwrap_or_default()
     }
 
     fn set(&mut self, key: &str, value: &str) {
-        for (i, k) in self.keys.iter().enumerate() {
-            if k == key {
-                self.values[i] = value.to_string();
-                return;
-            }
+        if let Some(i) = self.keys.iter().position(|k| k == key) {
+            self.values[i] = value.to_string();
+        } else {
+            self.keys.push(key.to_string());
+            self.values.push(value.to_string());
         }
-        self.keys.push(key.to_string());
-        self.values.push(value.to_string());
     }
 
     fn to_file_data(&self) -> DesktopFileData {
@@ -133,7 +128,7 @@ impl DesktopEntryData {
             no_display: self.get("NoDisplay").to_lowercase() == "true",
             hidden: self.get("Hidden").to_lowercase() == "true",
             dbus_activatable: self.get("DBusActivatable").to_lowercase() == "true",
-            path: self.get("Path"),
+            working_dir: self.get("Path"),
             only_show_in: self.get("OnlyShowIn"),
             not_show_in: self.get("NotShowIn"),
             actions: self.get("Actions"),
@@ -144,8 +139,7 @@ impl DesktopEntryData {
     }
 
     fn apply_file_data(&mut self, data: &DesktopFileData) {
-        // Update structured fields
-        let updates = [
+        let updates: [(&str, &str); 21] = [
             ("Name", &data.name),
             ("GenericName", &data.generic_name),
             ("Comment", &data.comment),
@@ -162,20 +156,19 @@ impl DesktopEntryData {
             ("NoDisplay", if data.no_display { "true" } else { "false" }),
             ("Hidden", if data.hidden { "true" } else { "false" }),
             ("DBusActivatable", if data.dbus_activatable { "true" } else { "false" }),
-            ("Path", &data.path),
+            ("Path", &data.working_dir),
             ("OnlyShowIn", &data.only_show_in),
             ("NotShowIn", &data.not_show_in),
             ("Actions", &data.actions),
             ("Implements", &data.implements),
         ];
 
+        let structured_keys: Vec<&str> = updates.iter().map(|(k, _)| *k).collect();
         for (key, value) in &updates {
             self.set(key, value);
         }
 
-        // Also apply raw edits - update any values that differ
-        // We trust the raw tab values for keys that aren't covered by structured fields
-        let structured_keys: Vec<&str> = updates.iter().map(|(k, _)| *k).collect();
+        // Apply raw edits for keys not covered by structured fields
         for i in 0..data.raw_keys.len() {
             let key = &data.raw_keys[i];
             if !structured_keys.contains(&key.as_str()) {
@@ -190,12 +183,12 @@ impl DesktopEntryData {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
-
-        let mut file = fs::File::create(&self.path)?;
-        writeln!(file, "[Desktop Entry]")?;
+        let mut out = fs::File::create(&self.path)?;
+        use std::io::Write;
+        writeln!(out, "[Desktop Entry]")?;
         for (i, key) in self.keys.iter().enumerate() {
             if let Some(value) = self.values.get(i) {
-                writeln!(file, "{}={}", key, value)?;
+                writeln!(out, "{}={}", key, value)?;
             }
         }
         Ok(())
@@ -204,7 +197,7 @@ impl DesktopEntryData {
 
 fn scan_desktop_entries() -> Vec<DesktopEntryData> {
     let mut entries = Vec::new();
-    let mut seen_names = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
 
     let mut dirs: Vec<PathBuf> = STANDARD_PATHS.iter().map(PathBuf::from).collect();
     dirs.push(home_applications());
@@ -213,17 +206,16 @@ fn scan_desktop_entries() -> Vec<DesktopEntryData> {
         if !dir.is_dir() {
             continue;
         }
-        if let Ok(files) = fs::read_dir(&dir) {
-            for file in files.flatten() {
-                let path = file.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
-                    continue;
-                }
-                if let Some(entry) = DesktopEntryData::from_file(&path) {
-                    let name = entry.get("Name");
-                    if !name.is_empty() && seen_names.insert(name.clone()) {
-                        entries.push(entry);
-                    }
+        let Ok(files) = fs::read_dir(&dir) else { continue };
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+                continue;
+            }
+            if let Some(entry) = DesktopEntryData::from_file(&path) {
+                let name = entry.get("Name");
+                if !name.is_empty() && seen.insert(name.clone()) {
+                    entries.push(entry);
                 }
             }
         }
@@ -236,35 +228,31 @@ fn scan_desktop_entries() -> Vec<DesktopEntryData> {
 fn main() {
     let app = AppWindow::new().unwrap();
 
-    // State: all scanned entries + currently loaded raw entry
-    let all_entries: std::rc::Rc<std::cell::RefCell<Vec<DesktopEntryData>>> =
-        std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-    let current_raw: std::rc::Rc<std::cell::RefCell<Option<DesktopEntryData>>> =
-        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let all_entries: Rc<RefCell<Vec<DesktopEntryData>>> = Rc::new(RefCell::new(Vec::new()));
+    let current_raw: Rc<RefCell<Option<DesktopEntryData>>> = Rc::new(RefCell::new(None));
 
-    // --- Scan entries ---
-    let entries_clone = all_entries.clone();
-    let app_weak = app.as_weak();
-    app.invoke_scan_entries(move || {
+    // --- Scan ---
+    let entries_c = all_entries.clone();
+    let weak = app.as_weak();
+    app.on_scan_entries(move || {
         let scanned = scan_desktop_entries();
         let count = scanned.len();
-        *entries_clone.borrow_mut() = scanned;
+        *entries_c.borrow_mut() = scanned;
 
-        let app_weak = app_weak.clone();
+        let weak = weak.clone();
         slint::invoke_from_event_loop(move || {
-            if let Some(app) = app_weak.upgrade() {
+            if let Some(app) = weak.upgrade() {
                 app.set_status_text(format!("Found {} desktop files", count).into());
-                // Trigger search with empty query to populate list
                 let results = app.invoke_search("".into());
                 app.set_search_results(results);
             }
         }).unwrap();
-    }).unwrap();
+    });
 
     // --- Search ---
-    let entries_clone = all_entries.clone();
-    app.on_search(move |query: SharedString| {
-        let entries = entries_clone.borrow();
+    let entries_c = all_entries.clone();
+    app.on_search(move |query: slint::SharedString| {
+        let entries = entries_c.borrow();
         let q = query.to_lowercase();
         let mut results: Vec<SearchResult> = Vec::new();
 
@@ -274,11 +262,9 @@ fn main() {
             let icon = entry.get("Icon");
             let path = entry.path.to_string_lossy().to_string();
 
-            let matches = if q.is_empty() {
-                true
-            } else {
-                name.to_lowercase().contains(&q) || comment.to_lowercase().contains(&q)
-            };
+            let matches = q.is_empty()
+                || name.to_lowercase().contains(&q)
+                || comment.to_lowercase().contains(&q);
 
             if matches {
                 results.push(SearchResult {
@@ -289,67 +275,60 @@ fn main() {
                 });
             }
         }
-
         results
     });
 
     // --- Load entry ---
-    let entries_clone = all_entries.clone();
-    let current_raw_clone = current_raw.clone();
+    let entries_c = all_entries.clone();
+    let current_c = current_raw.clone();
     app.on_load_entry(move |index: i32| {
-        let entries = entries_clone.borrow();
+        let entries = entries_c.borrow();
         if let Some(entry) = entries.get(index as usize) {
             let data = entry.to_file_data();
-            *current_raw_clone.borrow_mut() = Some(entry.clone());
+            *current_c.borrow_mut() = Some(entry.clone());
             data
         } else {
             DesktopFileData::default()
         }
     });
 
-    // --- Save entry ---
-    let current_raw_clone = current_raw.clone();
-    let app_weak = app.as_weak();
-    let all_entries_clone = all_entries.clone();
+    // --- Save ---
+    let current_c = current_raw.clone();
+    let all_c = all_entries.clone();
+    let weak = app.as_weak();
     app.on_save_entry(move || {
-        if let Ok(mut raw) = current_raw_clone.try_borrow_mut() {
-            if let Some(ref mut entry) = *raw {
-                if let Some(app) = app_weak.upgrade() {
-                    let data = app.get_current_file();
-                    entry.apply_file_data(&data);
-                    match entry.write_to_file() {
-                        Ok(()) => {
-                            // Refresh in the all_entries list too
-                            let mut all = all_entries_clone.borrow_mut();
-                            if let Some(pos) = all.iter().position(|e| e.path == entry.path) {
-                                all[pos] = entry.clone();
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Error saving: {}", e);
+        let mut raw = current_c.borrow_mut();
+        if let Some(ref mut entry) = *raw {
+            if let Some(app) = weak.upgrade() {
+                let data = app.get_current_file();
+                entry.apply_file_data(&data);
+                match entry.write_to_file() {
+                    Ok(()) => {
+                        let mut all = all_c.borrow_mut();
+                        if let Some(pos) = all.iter().position(|e| e.path == entry.path) {
+                            all[pos] = entry.clone();
                         }
                     }
+                    Err(e) => eprintln!("Error saving: {}", e),
                 }
             }
         }
     });
 
-    // --- New entry ---
-    let current_raw_clone = current_raw.clone();
-    let all_entries_clone = all_entries.clone();
-    let app_weak = app.as_weak();
+    // --- New ---
+    let current_c = current_raw.clone();
+    let weak = app.as_weak();
     app.on_new_entry(move || {
         let new_entry = DesktopEntryData::new_empty();
         let data = new_entry.to_file_data();
-        *current_raw_clone.borrow_mut() = Some(new_entry);
+        *current_c.borrow_mut() = Some(new_entry);
 
-        if let Some(app) = app_weak.upgrade() {
+        if let Some(app) = weak.upgrade() {
             app.set_current_file(data);
             app.set_has_selection(true);
             app.set_unsaved_changes(true);
 
-            // Add to results list
-            let mut results = app.get_search_results().to_vec();
+            let mut results: Vec<SearchResult> = app.get_search_results().to_vec();
             results.insert(0, SearchResult {
                 name: "New Entry".into(),
                 icon: "".into(),
@@ -361,69 +340,58 @@ fn main() {
         }
     });
 
-    // --- Delete entry ---
-    let current_raw_clone = current_raw.clone();
-    let all_entries_clone = all_entries.clone();
-    let app_weak = app.as_weak();
+    // --- Delete ---
+    let current_c = current_raw.clone();
+    let all_c = all_entries.clone();
+    let weak = app.as_weak();
     app.on_delete_entry(move || {
-        if let Ok(mut raw) = current_raw_clone.try_borrow_mut() {
+        {
+            let mut raw = current_c.borrow_mut();
             if let Some(ref entry) = *raw {
                 let _ = fs::remove_file(&entry.path);
-                all_entries_clone.borrow_mut().retain(|e| e.path != entry.path);
+                all_c.borrow_mut().retain(|e| e.path != entry.path);
             }
             *raw = None;
         }
 
-        if let Some(app) = app_weak.upgrade() {
+        if let Some(app) = weak.upgrade() {
             app.set_has_selection(false);
             app.set_unsaved_changes(false);
             app.set_status_text("Entry deleted".into());
-            // Refresh list
             let results = app.invoke_search("".into());
             app.set_search_results(results);
         }
     });
 
     // --- Open in external editor ---
-    let current_raw_clone = current_raw.clone();
+    let current_c = current_raw.clone();
     app.on_open_in_editor(move || {
-        if let Ok(raw) = current_raw_clone.try_borrow() {
-            if let Some(ref entry) = *raw {
-                let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".into());
-                let _ = std::process::Command::new(&editor)
-                    .arg(&entry.path)
-                    .spawn();
-            }
+        let raw = current_c.borrow();
+        if let Some(ref entry) = *raw {
+            let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".into());
+            let _ = std::process::Command::new(&editor)
+                .arg(&entry.path)
+                .spawn();
         }
     });
 
-    // --- Validate entry ---
-    app.on_validate_entry(move || {
-        // Basic validation
-        "Validation not yet implemented".into()
-    });
-
-    // --- Reload entry ---
-    let current_raw_clone = current_raw.clone();
-    let app_weak = app.as_weak();
+    // --- Reload ---
+    let current_c = current_raw.clone();
+    let weak = app.as_weak();
     app.on_reload_entry(move || {
-        if let Ok(mut raw) = current_raw_clone.try_borrow_mut() {
-            if let Some(ref mut entry) = *raw {
-                if let Some(reloaded) = DesktopEntryData::from_file(&entry.path) {
-                    *entry = reloaded;
-                    let data = entry.to_file_data();
-                    if let Some(app) = app_weak.upgrade() {
-                        app.set_current_file(data);
-                    }
+        let mut raw = current_c.borrow_mut();
+        if let Some(ref mut entry) = *raw {
+            if let Some(reloaded) = DesktopEntryData::from_file(&entry.path) {
+                *entry = reloaded;
+                let data = entry.to_file_data();
+                if let Some(app) = weak.upgrade() {
+                    app.set_current_file(data);
                 }
             }
         }
     });
 
-    // --- Install entry (no-op placeholder) ---
-    app.on_install_entry(move || {});
-
-    // Initial scan
+    // Trigger initial scan
     app.invoke_scan_entries();
 
     app.run().unwrap();

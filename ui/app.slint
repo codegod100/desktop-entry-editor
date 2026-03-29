@@ -1,29 +1,16 @@
-import { Button, LineEdit, StandardButton, VerticalBox, HorizontalBox, TabWidget, CheckBox, ComboBox, GridBox, GroupBox, AboutSlint } from "std-widgets.slint";
+import { Button, LineEdit, StandardButton, VerticalBox, HorizontalBox, TabWidget, CheckBox, ComboBox, GridBox, GroupBox, ScrollView } from "std-widgets.slint";
 
-// A single desktop entry shown in the list
-struct DesktopEntry {
+export struct SearchResult := struct {
     name: string,
     icon: string,
     path: string,
-    exec: string,
     comment: string,
-    desktop-type: string,
-    categories: string,
-    mime-types: string,
-    terminal: bool,
-    startup-notify: bool,
-    no-display: bool,
-    // Raw key-value pairs for the editor
-    raw-keys: [string],
-    raw-values: [string],
 }
 
-// Full desktop file with all sections
-struct DesktopFileData {
+export struct DesktopFileData := struct {
     path: string,
     is-new: bool,
     has-changes: bool,
-    // Main section fields
     name: string,
     generic-name: string,
     comment: string,
@@ -40,21 +27,13 @@ struct DesktopFileData {
     no-display: bool,
     hidden: bool,
     dbus-activatable: bool,
-    path: string,
+    working-dir: string,
     only-show-in: string,
     not-show-in: string,
     actions: string,
     implements: string,
-    // Full raw key-value pairs for advanced editing
     raw-keys: [string],
     raw-values: [string],
-}
-
-export struct SearchResult := struct {
-    name: string,
-    icon: string,
-    path: string,
-    comment: string,
 }
 
 export component AppWindow inherits Window {
@@ -69,41 +48,18 @@ export component AppWindow inherits Window {
     in-out property <int> selected-index: -1;
     in-out property <string> search-query: "";
     in-out property <string> status-text: "Ready";
-
-    // Detail panel
     in-out property <DesktopFileData> current-file: {
-        path: "",
-        is-new: true,
-        has-changes: false,
-        name: "",
-        generic-name: "",
-        comment: "",
-        icon: "",
-        exec: "",
-        try-exec: "",
-        desktop-type: "Application",
-        categories: "",
-        mime-types: "",
-        keywords: "",
-        startup-wm-class: "",
-        terminal: false,
-        startup-notify: false,
-        no-display: false,
-        hidden: false,
-        dbus-activatable: false,
-        path: "",
-        only-show-in: "",
-        not-show-in: "",
-        actions: "",
-        implements: "",
-        raw-keys: [],
-        raw-values: [],
+        path: "", is-new: true, has-changes: false,
+        name: "", generic-name: "", comment: "", icon: "", exec: "", try-exec: "",
+        desktop-type: "Application", categories: "", mime-types: "", keywords: "",
+        startup-wm-class: "", terminal: false, startup-notify: false, no-display: false,
+        hidden: false, dbus-activatable: false, working-dir: "", only-show-in: "",
+        not-show-in: "", actions: "", implements: "",
+        raw-keys: [], raw-values: [],
     };
-
     in-out property <bool> has-selection: false;
     in-out property <bool> unsaved-changes: false;
     in-out property <bool> loading: false;
-    in-out property <int> raw-edit-count: 0;
 
     // --- Callbacks to Rust ---
     callback scan-entries();
@@ -113,14 +69,11 @@ export component AppWindow inherits Window {
     callback new-entry();
     callback delete-entry();
     callback open-in-editor();
-    callback validate-entry() -> string;
     callback reload-entry();
-    callback install-entry();
 
     // --- Layout ---
-
     HorizontalLayout {
-        // Left sidebar: search + results
+        // === Left sidebar ===
         Rectangle {
             width: 340px;
             background: #1a1d23;
@@ -129,7 +82,6 @@ export component AppWindow inherits Window {
                 padding: 16px;
                 spacing: 12px;
 
-                // Header
                 Text {
                     text: "Desktop Entries";
                     font-size: 20px;
@@ -150,7 +102,7 @@ export component AppWindow inherits Window {
                     border-radius: 6px;
                     background: #2a2f3a;
                     border-width: 1px;
-                    border-color: search-field.has-focus ? #5294e2 : #3b4252;
+                    border-color: #3b4252;
 
                     HorizontalLayout {
                         padding-left: 10px;
@@ -163,25 +115,21 @@ export component AppWindow inherits Window {
                             font-size: 14px;
                         }
 
-                        TouchArea {
-                            layout := TextInput {
-                                vertical-alignment: center;
-                                id := search-field;
-                                font-size: 13px;
-                                color: #eff0f1;
-                                placeholder-text: "Search desktop files...";
-                                text: root.search-query;
+                        search-input := TextInput {
+                            vertical-alignment: center;
+                            font-size: 13px;
+                            color: #eff0f1;
+                            placeholder-text: "Search desktop files...";
+                            text: root.search-query;
 
-                                edited(key) => {
-                                    root.search-query = self.text;
-                                    root.search-results = root.search(self.text);
-                                }
+                            edited => {
+                                root.search-query = self.text;
+                                root.search-results = root.search(self.text);
                             }
                         }
                     }
                 }
 
-                // Status
                 Text {
                     text: root.status-text;
                     font-size: 12px;
@@ -190,13 +138,11 @@ export component AppWindow inherits Window {
 
                 // Results list
                 ListView {
-                    id := results-list;
                     current: root.selected-index;
 
                     for result[idx] in root.search-results: Rectangle {
                         height: 62px;
-                        selected: idx == root.selected-index;
-                        background: idx == root.selected-index ? #5294e240 : (mouse-area.hover ? #ffffff08 : transparent);
+                        background: idx == root.selected-index ? #5294e240 : (mouse-area.has-hover ? #ffffff08 : transparent);
                         border-radius: 6px;
 
                         mouse-area := TouchArea {
@@ -214,7 +160,6 @@ export component AppWindow inherits Window {
                             padding: 10px;
                             spacing: 12px;
 
-                            // Icon placeholder
                             Rectangle {
                                 width: 40px;
                                 height: 40px;
@@ -252,12 +197,11 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Bottom buttons
                 HorizontalLayout {
                     spacing: 8px;
 
                     Button {
-                        text: "⟳ Rescan";
+                        text: "Rescan";
                         clicked => { root.scan-entries(); }
                     }
 
@@ -269,10 +213,11 @@ export component AppWindow inherits Window {
             }
         }
 
-        // Right panel: editor details
+        // === Right panel ===
         Rectangle {
             background: #21252b;
 
+            // Empty state
             if !root.has-selection: VerticalLayout {
                 alignment: center;
                 spacing: 16px;
@@ -292,11 +237,12 @@ export component AppWindow inherits Window {
                 }
             }
 
+            // Editor
             if root.has-selection && !root.loading: VerticalLayout {
                 padding: 20px;
                 spacing: 16px;
 
-                // Header with icon + name
+                // Header
                 HorizontalLayout {
                     spacing: 16px;
 
@@ -335,7 +281,6 @@ export component AppWindow inherits Window {
                             HorizontalLayout {
                                 padding-left: 8px;
                                 padding-right: 4px;
-                                spacing: 4px;
 
                                 Text {
                                     text: root.current-file.path;
@@ -363,7 +308,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Tab widget
+                // Tabs
                 TabWidget {
                     Tab {
                         title: "General";
@@ -373,73 +318,66 @@ export component AppWindow inherits Window {
                                 spacing: 12px;
                                 padding: 8px;
 
-                                // Name
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Name"; font-size: 12px; color: #aeb6c2; }
-                                    field-name := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.name;
                                         edited => { root.current-file.name = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Generic Name
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Generic Name"; font-size: 12px; color: #aeb6c2; }
-                                    field-generic-name := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.generic-name;
                                         edited => { root.current-file.generic-name = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Comment
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Comment"; font-size: 12px; color: #aeb6c2; }
-                                    field-comment := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.comment;
                                         edited => { root.current-file.comment = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Icon
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Icon"; font-size: 12px; color: #aeb6c2; }
-                                    field-icon := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.icon;
                                         edited => { root.current-file.icon = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Exec
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Exec"; font-size: 12px; color: #aeb6c2; }
-                                    field-exec := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.exec;
                                         edited => { root.current-file.exec = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // TryExec
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "TryExec"; font-size: 12px; color: #aeb6c2; }
-                                    field-try-exec := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.try-exec;
                                         edited => { root.current-file.try-exec = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Path (working directory)
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Working Directory"; font-size: 12px; color: #aeb6c2; }
-                                    field-work-dir := LineEdit {
-                                        text: root.current-file.path;
-                                        edited => { root.current-file.path = self.text; root.unsaved-changes = true; }
+                                    LineEdit {
+                                        text: root.current-file.working-dir;
+                                        edited => { root.current-file.working-dir = self.text; root.unsaved-changes = true; }
                                     }
                                 }
                             }
@@ -447,99 +385,93 @@ export component AppWindow inherits Window {
                     }
 
                     Tab {
-                        title: "Type & Categories";
+                        title: "Categories";
 
                         ScrollView {
                             VerticalLayout {
                                 spacing: 12px;
                                 padding: 8px;
 
-                                // Type
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Type"; font-size: 12px; color: #aeb6c2; }
-                                    field-type := ComboBox {
+                                    ComboBox {
                                         model: ["Application", "Link", "Directory"];
                                         current-value: root.current-file.desktop-type;
-                                        selected(value) => { root.current-file.desktop-type = value; root.unsaved-changes = true; }
+                                        selected(value) => {
+                                            root.current-file.desktop-type = value;
+                                            root.unsaved-changes = true;
+                                        }
                                     }
                                 }
 
-                                // Categories
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Categories"; font-size: 12px; color: #aeb6c2; }
-                                    field-categories := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.categories;
                                         edited => { root.current-file.categories = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // MimeTypes
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Mime Types"; font-size: 12px; color: #aeb6c2; }
-                                    field-mimetypes := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.mime-types;
                                         edited => { root.current-file.mime-types = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Keywords
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Keywords"; font-size: 12px; color: #aeb6c2; }
-                                    field-keywords := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.keywords;
                                         edited => { root.current-file.keywords = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // StartupWMClass
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Startup WM Class"; font-size: 12px; color: #aeb6c2; }
-                                    field-wm-class := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.startup-wm-class;
                                         edited => { root.current-file.startup-wm-class = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // OnlyShowIn
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Only Show In"; font-size: 12px; color: #aeb6c2; }
-                                    field-only-show-in := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.only-show-in;
                                         edited => { root.current-file.only-show-in = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // NotShowIn
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Not Show In"; font-size: 12px; color: #aeb6c2; }
-                                    field-not-show-in := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.not-show-in;
                                         edited => { root.current-file.not-show-in = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Implements
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Implements"; font-size: 12px; color: #aeb6c2; }
-                                    field-implements := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.implements;
                                         edited => { root.current-file.implements = self.text; root.unsaved-changes = true; }
                                     }
                                 }
 
-                                // Actions
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Actions"; font-size: 12px; color: #aeb6c2; }
-                                    field-actions := LineEdit {
+                                    LineEdit {
                                         text: root.current-file.actions;
                                         edited => { root.current-file.actions = self.text; root.unsaved-changes = true; }
                                     }
@@ -561,31 +493,31 @@ export component AppWindow inherits Window {
                                 VerticalLayout {
                                     spacing: 12px;
 
-                                    chk-terminal := CheckBox {
+                                    CheckBox {
                                         text: "Run in Terminal";
                                         checked: root.current-file.terminal;
                                         toggled => { root.current-file.terminal = self.checked; root.unsaved-changes = true; }
                                     }
 
-                                    chk-startup-notify := CheckBox {
+                                    CheckBox {
                                         text: "Startup Notify";
                                         checked: root.current-file.startup-notify;
                                         toggled => { root.current-file.startup-notify = self.checked; root.unsaved-changes = true; }
                                     }
 
-                                    chk-no-display := CheckBox {
+                                    CheckBox {
                                         text: "No Display (hide from menus)";
                                         checked: root.current-file.no-display;
                                         toggled => { root.current-file.no-display = self.checked; root.unsaved-changes = true; }
                                     }
 
-                                    chk-hidden := CheckBox {
+                                    CheckBox {
                                         text: "Hidden (do not show)";
                                         checked: root.current-file.hidden;
                                         toggled => { root.current-file.hidden = self.checked; root.unsaved-changes = true; }
                                     }
 
-                                    chk-dbus := CheckBox {
+                                    CheckBox {
                                         text: "D-Bus Activatable";
                                         checked: root.current-file.dbus-activatable;
                                         toggled => { root.current-file.dbus-activatable = self.checked; root.unsaved-changes = true; }
@@ -598,19 +530,17 @@ export component AppWindow inherits Window {
                     Tab {
                         title: "Raw";
 
-                        VerticalLayout {
-                            spacing: 8px;
-                            padding: 8px;
+                        ScrollView {
+                            VerticalLayout {
+                                spacing: 8px;
+                                padding: 8px;
 
-                            Text {
-                                text: "Raw desktop file keys and values. Edit values directly.";
-                                font-size: 12px;
-                                color: #8892a0;
-                                wrap-mode: word-wrap;
-                            }
-
-                            raw-grid := VerticalLayout {
-                                spacing: 4px;
+                                Text {
+                                    text: "Raw desktop file keys and values. Edit values directly.";
+                                    font-size: 12px;
+                                    color: #8892a0;
+                                    wrap-mode: word-wrap;
+                                }
 
                                 for key[idx] in root.current-file.raw-keys: HorizontalLayout {
                                     spacing: 8px;
@@ -635,7 +565,7 @@ export component AppWindow inherits Window {
                                         background: #2a2f3a;
                                         border-radius: 4px;
                                         border-width: 1px;
-                                        border-color: raw-input.has-focus ? #5294e2 : #3b4252;
+                                        border-color: #3b4252;
 
                                         raw-input := TextInput {
                                             text: root.current-file.raw-values[idx];
@@ -657,14 +587,13 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // Action bar at bottom
+                // Bottom action bar
                 HorizontalLayout {
                     spacing: 8px;
                     vertical-stretch: 0;
 
                     Button {
-                        text: "💾 Save";
-                        primary: true;
+                        text: "Save";
                         enabled: root.unsaved-changes;
                         clicked => {
                             root.save-entry();
@@ -673,7 +602,7 @@ export component AppWindow inherits Window {
                     }
 
                     Button {
-                        text: "↩ Reload";
+                        text: "Reload";
                         clicked => {
                             root.reload-entry();
                             root.unsaved-changes = false;
@@ -681,15 +610,14 @@ export component AppWindow inherits Window {
                     }
 
                     Button {
-                        text: "📋 Open in Editor";
+                        text: "Open in Editor";
                         clicked => { root.open-in-editor(); }
                     }
 
                     Rectangle { horizontal-stretch: 1; }
 
                     Button {
-                        text: "🗑 Delete";
-                        colorize-icon: true;
+                        text: "Delete";
                         clicked => { root.delete-entry(); }
                     }
                 }
